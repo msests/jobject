@@ -163,6 +163,42 @@ void testPropertyDescriptor() {
     std::cout << "修改只读属性" << (success ? "成功" : "失败") << std::endl;
 }
 
+void testMacroUsage() {
+    using namespace jobject;
+    
+    std::cout << "\n=== 测试 DEF_PROP 宏 ===" << std::endl;
+    
+    // 创建一个对象
+    auto obj = utils::createObject();
+    
+    // 使用DEF_PROP宏定义读写属性
+    DEF_PROP(*obj, "name", 
+        []() -> ValueVariant {
+            return std::make_shared<JString>("test object");
+        },
+        [obj](const ValueVariant& val) {
+            std::cout << "设置name属性为: " << utils::valueToString(val) << std::endl;
+        });
+    
+    // 使用DEF_PROP_RO宏定义只读属性
+    DEF_PROP_RO(*obj, "version",
+        []() -> ValueVariant {
+            return std::make_shared<JString>("1.0.0");
+        });
+    
+    // 使用DEF_PROP_VAL宏定义值属性
+    DEF_PROP_VAL(*obj, "id", static_cast<uint32_t>(12345), false, true, true);
+    
+    // 测试属性访问
+    std::cout << "名称: " << utils::valueToString(obj->getProperty("name")) << std::endl;
+    std::cout << "版本: " << utils::valueToString(obj->getProperty("version")) << std::endl;
+    std::cout << "ID: " << utils::valueToString(obj->getProperty("id")) << std::endl;
+    
+    // 测试设置属性
+    obj->setProperty("name", std::make_shared<JString>("updated name"));
+    std::cout << "更新后的名称: " << utils::valueToString(obj->getProperty("name")) << std::endl;
+}
+
 int main() {
     std::cout << "JObject 系统测试程序" << std::endl;
     std::cout << "===================" << std::endl;
@@ -175,6 +211,7 @@ int main() {
         testFunction();
         testDate();
         testPropertyDescriptor();
+        testMacroUsage();
         
         std::cout << "\n所有测试完成！" << std::endl;
     } catch (const std::exception& e) {

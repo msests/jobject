@@ -11,15 +11,15 @@
 
 namespace jobject {
 
-// 前向声明
-class JObject;
-class JString;
-class JArray;
-class JFunction;
-class JDate;
+  // 前向声明
+  class JObject;
+  class JString;
+  class JArray;
+  class JFunction;
+  class JDate;
 
-// 值类型枚举
-enum class ValueType {
+  // 值类型枚举
+  enum class ValueType {
     Null,
     Boolean,
     Int32,
@@ -31,10 +31,10 @@ enum class ValueType {
     Object,
     Function,
     Date
-};
+  };
 
-// 值的变体类型
-using ValueVariant = std::variant<
+  // 值的变体类型
+  using ValueVariant = std::variant<
     std::nullptr_t,                           // Null
     bool,                                     // Boolean
     int32_t,                                  // Int32
@@ -47,21 +47,91 @@ using ValueVariant = std::variant<
     std::shared_ptr<JObject>,                 // Object
     std::shared_ptr<JFunction>,               // Function
     std::shared_ptr<JDate>                    // Date
->;
+  >;
 
-// 属性描述符
-struct PropertyDescriptor {
+  // 属性描述符
+  struct PropertyDescriptor {
     ValueVariant value;
     bool writable = true;
     bool enumerable = true;
     bool configurable = true;
     std::function<ValueVariant()> getter = nullptr;
     std::function<void(const ValueVariant&)> setter = nullptr;
-};
+  };
+
+  // 属性定义宏，简化defineProperty的使用
+#define DEF_PROP(obj, prop_name, read_fn, write_fn) \
+    do { \
+        PropertyDescriptor _desc; \
+        _desc.getter = (read_fn); \
+        _desc.setter = (write_fn); \
+        _desc.writable = true; \
+        _desc.enumerable = true; \
+        _desc.configurable = true; \
+        (obj).defineProperty((prop_name), _desc); \
+    } while(0)
+
+// 只读属性定义宏
+#define DEF_PROP_RO(obj, prop_name, read_fn) \
+    do { \
+        PropertyDescriptor _desc; \
+        _desc.getter = (read_fn); \
+        _desc.setter = nullptr; \
+        _desc.writable = false; \
+        _desc.enumerable = true; \
+        _desc.configurable = true; \
+        (obj).defineProperty((prop_name), _desc); \
+    } while(0)
+
+// 自定义属性定义宏（可指定writable, enumerable, configurable）
+#define DEF_PROP_EX(obj, prop_name, read_fn, write_fn, _writable, _enumerable, _configurable) \
+    do { \
+        PropertyDescriptor _desc; \
+        _desc.getter = (read_fn); \
+        _desc.setter = (write_fn); \
+        _desc.writable = (_writable); \
+        _desc.enumerable = (_enumerable); \
+        _desc.configurable = (_configurable); \
+        (obj).defineProperty((prop_name), _desc); \
+    } while(0)
+
+// 可变参数版本的属性定义宏，支持包含逗号的 lambda 表达式
+#define DEF_PROP_EX_VA(obj, prop_name, ...) \
+    jobject::detail::def_prop_ex_helper((obj), (prop_name), __VA_ARGS__)
+
+// 辅助命名空间
+  namespace detail {
+    // 辅助函数，支持可变参数
+    template<typename Obj, typename ReadFn, typename WriteFn>
+    void def_prop_ex_helper(Obj& obj, const std::string& prop_name,
+      const ReadFn& read_fn, const WriteFn& write_fn,
+      bool writable, bool enumerable, bool configurable) {
+      PropertyDescriptor desc;
+      desc.getter = read_fn;
+      desc.setter = write_fn;
+      desc.writable = writable;
+      desc.enumerable = enumerable;
+      desc.configurable = configurable;
+      obj.defineProperty(prop_name, desc);
+    }
+  }
+
+  // 值属性定义宏（直接设置值，不使用getter/setter）
+#define DEF_PROP_VAL(obj, prop_name, val, _writable, _enumerable, _configurable) \
+    do { \
+        PropertyDescriptor _desc; \
+        _desc.value = (val); \
+        _desc.getter = nullptr; \
+        _desc.setter = nullptr; \
+        _desc.writable = (_writable); \
+        _desc.enumerable = (_enumerable); \
+        _desc.configurable = (_configurable); \
+        (obj).defineProperty((prop_name), _desc); \
+    } while(0)
 
 // 基础对象类
-class JObject {
-public:
+  class JObject {
+  public:
     JObject();
     virtual ~JObject() = default;
 
@@ -93,18 +163,18 @@ public:
     virtual ValueType getType() const { return ValueType::Object; }
     virtual std::string toString() const;
 
-protected:
+  protected:
     std::unordered_map<std::string, PropertyDescriptor> properties_;
     void initializeCommonProperties();
 
-private:
-    // 内部属性访问辅助方法
-    ValueVariant getPropertyInternal(const std::string& name) const;
-};
+  protected:
+    // 内部属性访问辅助方法，子类可以重写来处理特有的属性
+    virtual ValueVariant getPropertyInternal(const std::string& name) const;
+  };
 
-// 字符串类
-class JString : public JObject {
-public:
+  // 字符串类
+  class JString : public JObject {
+  public:
     JString(const std::string& str = "");
     JString(const char* str);
 
@@ -124,14 +194,18 @@ public:
     const std::string& getValue() const { return value_; }
     void setValue(const std::string& value);
 
-private:
+  protected:
+    // 重写属性访问方法以处理字符串特有的方法
+    ValueVariant getPropertyInternal(const std::string& name) const override;
+
+  private:
     std::string value_;
     void initializeStringProperties();
-};
+  };
 
-// 数组类
-class JArray : public JObject {
-public:
+  // 数组类
+  class JArray : public JObject {
+  public:
     JArray(size_t size = 0);
     JArray(const std::vector<ValueVariant>& values);
 
@@ -155,17 +229,21 @@ public:
     const std::vector<ValueVariant>& getValue() const { return value_; }
     std::vector<ValueVariant>& getValue() { return value_; }
 
-private:
+  protected:
+    // 重写属性访问方法以处理数组特有的方法
+    ValueVariant getPropertyInternal(const std::string& name) const override;
+
+  private:
     std::vector<ValueVariant> value_;
     void initializeArrayProperties();
     void updateLength();
-};
+  };
 
-// 函数类
-class JFunction : public JObject {
-public:
+  // 函数类
+  class JFunction : public JObject {
+  public:
     using FunctionType = std::function<ValueVariant(const std::vector<ValueVariant>&)>;
-    
+
     JFunction(const std::string& name = "", FunctionType func = nullptr);
 
     // C++方法
@@ -179,15 +257,19 @@ public:
     const std::string& getName() const { return name_; }
     void setName(const std::string& name);
 
-private:
+  protected:
+    // 重写属性访问方法以处理函数特有的方法
+    ValueVariant getPropertyInternal(const std::string& name) const override;
+
+  private:
     std::string name_;
     FunctionType function_;
     void initializeFunctionProperties();
-};
+  };
 
-// 日期类
-class JDate : public JObject {
-public:
+  // 日期类
+  class JDate : public JObject {
+  public:
     JDate();
     JDate(const std::chrono::system_clock::time_point& time);
     JDate(int64_t timestamp); // 毫秒时间戳
@@ -200,26 +282,30 @@ public:
     int64_t getTime() const; // 获取毫秒时间戳
     void setTime(int64_t timestamp);
 
-private:
+  protected:
+    // 重写属性访问方法以处理日期特有的方法
+    ValueVariant getPropertyInternal(const std::string& name) const override;
+
+  private:
     std::chrono::system_clock::time_point time_;
     void initializeDateProperties();
-};
+  };
 
-// 工具函数
-namespace utils {
+  // 工具函数
+  namespace utils {
     ValueType getValueType(const ValueVariant& value);
     std::string valueToString(const ValueVariant& value);
     bool isNumber(const ValueVariant& value);
     double toNumber(const ValueVariant& value);
     bool toBoolean(const ValueVariant& value);
-    
+
     // 创建不同类型的值
     std::shared_ptr<JObject> createObject();
     std::shared_ptr<JString> createString(const std::string& str = "");
     std::shared_ptr<JArray> createArray(size_t size = 0);
-    std::shared_ptr<JFunction> createFunction(const std::string& name = "", 
-                                            JFunction::FunctionType func = nullptr);
+    std::shared_ptr<JFunction> createFunction(const std::string& name = "",
+      JFunction::FunctionType func = nullptr);
     std::shared_ptr<JDate> createDate();
-}
+  }
 
 } // namespace jobject
