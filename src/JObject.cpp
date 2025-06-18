@@ -18,7 +18,7 @@ void JObject::initializeCommonProperties() {
     // toString方法
     auto toStringFunc = std::make_shared<JFunction>("toString", 
         [this](const std::vector<ValueVariant>&) -> ValueVariant {
-            return std::make_shared<JString>(this->toString());
+            return std::make_shared<JString>("[object Object]");
         });
     
     PropertyDescriptor toStringDesc;

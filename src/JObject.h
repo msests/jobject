@@ -43,6 +43,7 @@ using ValueVariant = std::variant<
     double,                                   // Double
     std::shared_ptr<JString>,                 // String
     std::shared_ptr<JArray>,                  // Array
+
     std::shared_ptr<JObject>,                 // Object
     std::shared_ptr<JFunction>,               // Function
     std::shared_ptr<JDate>                    // Date

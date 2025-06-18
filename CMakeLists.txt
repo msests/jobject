@@ -13,11 +13,10 @@ target_include_directories(jobject PUBLIC src)
 add_executable(test_jobject test/main.cpp)
 target_link_libraries(test_jobject jobject)
 
-add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
-# 设置编译器特定的标志
+# 设置MSVC特定的编译选项
 if(MSVC)
-    target_compile_options(jobject PRIVATE /W4)
-    target_compile_options(test_jobject PRIVATE /W4)
+    target_compile_options(jobject PRIVATE /source-charset:utf-8 /W4)
+    target_compile_options(test_jobject PRIVATE /source-charset:utf-8 /W4)
 else()
     target_compile_options(jobject PRIVATE -Wall -Wextra -pedantic)
     target_compile_options(test_jobject PRIVATE -Wall -Wextra -pedantic)
