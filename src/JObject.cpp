@@ -143,7 +143,7 @@ namespace jobject {
 
   void JString::initializeStringProperties() {
     // length属性
-    DEF_PROP_EX(*this, "length",
+    jobject::utils::def_prop_ex(*this, "length",
       [this]() -> ValueVariant {
         return static_cast<uint32_t>(value_.length());
       },
@@ -237,7 +237,7 @@ namespace jobject {
 
   void JArray::initializeArrayProperties() {
     // length属性
-    DEF_PROP_EX(*this, "length",
+    jobject::utils::def_prop_ex(*this, "length",
       [this]() -> ValueVariant {
         return static_cast<uint32_t>(value_.size());
       },
@@ -257,7 +257,7 @@ namespace jobject {
   void JArray::updateLength() {
     // 更新数字索引属性
     for (size_t i = 0; i < value_.size(); ++i) {
-      DEF_PROP_EX(*this, std::to_string(i),
+      jobject::utils::def_prop_ex(*this, std::to_string(i),
         ([this, i]() -> ValueVariant {
           return i < value_.size() ? value_[i] : ValueVariant(nullptr);
           }),
@@ -450,14 +450,14 @@ namespace jobject {
 
   void JFunction::initializeFunctionProperties() {
     // name属性
-    DEF_PROP_EX(*this, "name",
+    jobject::utils::def_prop_ex(*this, "name",
       [this]() -> ValueVariant {
         return std::make_shared<JString>(name_);
       },
       nullptr, false, false, true);
 
     // length属性（参数个数，这里简化为0）
-    DEF_PROP_VAL(*this, "length", static_cast<uint32_t>(0), false, false, true);
+    jobject::utils::def_prop_val(*this, "length", static_cast<uint32_t>(0), false, false, true);
 
     // call方法将在getPropertyInternal中按需创建，避免递归
   }
@@ -557,180 +557,5 @@ namespace jobject {
     // 调用父类方法处理通用属性
     return JObject::getPropertyInternal(name);
   }
-
-  // =======================
-  // 工具函数实现
-  // =======================
-
-  namespace utils {
-
-    ValueType getValueType(const ValueVariant& value) {
-      return std::visit([](const auto& v) -> ValueType {
-        using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, std::nullptr_t>) {
-          return ValueType::Null;
-        }
-        else if constexpr (std::is_same_v<T, bool>) {
-          return ValueType::Boolean;
-        }
-        else if constexpr (std::is_same_v<T, int32_t>) {
-          return ValueType::Int32;
-        }
-        else if constexpr (std::is_same_v<T, uint32_t>) {
-          return ValueType::UInt32;
-        }
-        else if constexpr (std::is_same_v<T, uint64_t>) {
-          return ValueType::UInt64;
-        }
-        else if constexpr (std::is_same_v<T, double>) {
-          return ValueType::Double;
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JString>>) {
-          return ValueType::String;
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JArray>>) {
-          return ValueType::Array;
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JObject>>) {
-          return ValueType::Object;
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JFunction>>) {
-          return ValueType::Function;
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JDate>>) {
-          return ValueType::Date;
-        }
-        return ValueType::Null;
-        }, value);
-    }
-
-    std::string valueToString(const ValueVariant& value) {
-      return std::visit([](const auto& v) -> std::string {
-        using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, std::nullptr_t>) {
-          return "null";
-        }
-        else if constexpr (std::is_same_v<T, bool>) {
-          return v ? "true" : "false";
-        }
-        else if constexpr (std::is_same_v<T, int32_t>) {
-          return std::to_string(v);
-        }
-        else if constexpr (std::is_same_v<T, uint32_t>) {
-          return std::to_string(v);
-        }
-        else if constexpr (std::is_same_v<T, uint64_t>) {
-          return std::to_string(v);
-        }
-        else if constexpr (std::is_same_v<T, double>) {
-          return std::to_string(v);
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JString>>) {
-          return v ? v->toString() : "null";
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JArray>>) {
-          return v ? v->toString() : "null";
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JObject>>) {
-          return v ? v->toString() : "null";
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JFunction>>) {
-          return v ? v->toString() : "null";
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JDate>>) {
-          return v ? v->toString() : "null";
-        }
-        return "undefined";
-        }, value);
-    }
-
-    bool isNumber(const ValueVariant& value) {
-      return std::visit([](const auto& v) -> bool {
-        using T = std::decay_t<decltype(v)>;
-        return std::is_same_v<T, int32_t> ||
-          std::is_same_v<T, uint32_t> ||
-          std::is_same_v<T, uint64_t> ||
-          std::is_same_v<T, double>;
-        }, value);
-    }
-
-    double toNumber(const ValueVariant& value) {
-      return std::visit([](const auto& v) -> double {
-        using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, std::nullptr_t>) {
-          return 0.0;
-        }
-        else if constexpr (std::is_same_v<T, bool>) {
-          return v ? 1.0 : 0.0;
-        }
-        else if constexpr (std::is_same_v<T, int32_t>) {
-          return static_cast<double>(v);
-        }
-        else if constexpr (std::is_same_v<T, uint32_t>) {
-          return static_cast<double>(v);
-        }
-        else if constexpr (std::is_same_v<T, uint64_t>) {
-          return static_cast<double>(v);
-        }
-        else if constexpr (std::is_same_v<T, double>) {
-          return v;
-        }
-        else {
-          return std::nan("");
-        }
-        }, value);
-    }
-
-    bool toBoolean(const ValueVariant& value) {
-      return std::visit([](const auto& v) -> bool {
-        using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, std::nullptr_t>) {
-          return false;
-        }
-        else if constexpr (std::is_same_v<T, bool>) {
-          return v;
-        }
-        else if constexpr (std::is_same_v<T, int32_t>) {
-          return v != 0;
-        }
-        else if constexpr (std::is_same_v<T, uint32_t>) {
-          return v != 0;
-        }
-        else if constexpr (std::is_same_v<T, uint64_t>) {
-          return v != 0;
-        }
-        else if constexpr (std::is_same_v<T, double>) {
-          return v != 0.0 && !std::isnan(v);
-        }
-        else if constexpr (std::is_same_v<T, std::shared_ptr<JString>>) {
-          return v && !v->Empty();
-        }
-        else {
-          return v != nullptr;
-        }
-        }, value);
-    }
-
-    std::shared_ptr<JObject> createObject() {
-      return std::make_shared<JObject>();
-    }
-
-    std::shared_ptr<JString> createString(const std::string& str) {
-      return std::make_shared<JString>(str);
-    }
-
-    std::shared_ptr<JArray> createArray(size_t size) {
-      return std::make_shared<JArray>(size);
-    }
-
-    std::shared_ptr<JFunction> createFunction(const std::string& name, JFunction::FunctionType func) {
-      return std::make_shared<JFunction>(name, func);
-    }
-
-    std::shared_ptr<JDate> createDate() {
-      return std::make_shared<JDate>();
-    }
-
-  } // namespace utils
 
 } // namespace jobject
