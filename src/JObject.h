@@ -59,52 +59,40 @@ namespace jobject {
     std::function<void(const ValueVariant&)> setter = nullptr;
   };
 
-  // 属性定义宏，简化defineProperty的使用
-#define DEF_PROP(obj, prop_name, read_fn, write_fn) \
-    do { \
-        PropertyDescriptor _desc; \
-        _desc.getter = (read_fn); \
-        _desc.setter = (write_fn); \
-        _desc.writable = true; \
-        _desc.enumerable = true; \
-        _desc.configurable = true; \
-        (obj).defineProperty((prop_name), _desc); \
-    } while(0)
+  // 辅助命名空间
+  namespace utils {
+    // 基础属性定义函数
+    template<typename Obj>
+    void def_prop_rw(Obj& obj, const std::string& prop_name,
+      const std::function<ValueVariant()>& read_fn,
+      const std::function<void(const ValueVariant&)>& write_fn) {
+      PropertyDescriptor desc;
+      desc.getter = read_fn;
+      desc.setter = write_fn;
+      desc.writable = true;
+      desc.enumerable = true;
+      desc.configurable = true;
+      obj.defineProperty(prop_name, desc);
+    }
 
-// 只读属性定义宏
-#define DEF_PROP_RO(obj, prop_name, read_fn) \
-    do { \
-        PropertyDescriptor _desc; \
-        _desc.getter = (read_fn); \
-        _desc.setter = nullptr; \
-        _desc.writable = false; \
-        _desc.enumerable = true; \
-        _desc.configurable = true; \
-        (obj).defineProperty((prop_name), _desc); \
-    } while(0)
+    // 只读属性定义函数
+    template<typename Obj>
+    void def_prop_ro(Obj& obj, const std::string& prop_name,
+      const std::function<ValueVariant()>& read_fn) {
+      PropertyDescriptor desc;
+      desc.getter = read_fn;
+      desc.setter = nullptr;
+      desc.writable = false;
+      desc.enumerable = true;
+      desc.configurable = true;
+      obj.defineProperty(prop_name, desc);
+    }
 
-// 自定义属性定义宏（可指定writable, enumerable, configurable）
-#define DEF_PROP_EX(obj, prop_name, read_fn, write_fn, _writable, _enumerable, _configurable) \
-    do { \
-        PropertyDescriptor _desc; \
-        _desc.getter = (read_fn); \
-        _desc.setter = (write_fn); \
-        _desc.writable = (_writable); \
-        _desc.enumerable = (_enumerable); \
-        _desc.configurable = (_configurable); \
-        (obj).defineProperty((prop_name), _desc); \
-    } while(0)
-
-// 可变参数版本的属性定义宏，支持包含逗号的 lambda 表达式
-#define DEF_PROP_EX_VA(obj, prop_name, ...) \
-    jobject::detail::def_prop_ex_helper((obj), (prop_name), __VA_ARGS__)
-
-// 辅助命名空间
-  namespace detail {
-    // 辅助函数，支持可变参数
-    template<typename Obj, typename ReadFn, typename WriteFn>
-    void def_prop_ex_helper(Obj& obj, const std::string& prop_name,
-      const ReadFn& read_fn, const WriteFn& write_fn,
+    // 自定义属性定义函数（可指定writable, enumerable, configurable）
+    template<typename Obj>
+    void def_prop_ex(Obj& obj, const std::string& prop_name,
+      const std::function<ValueVariant()>& read_fn,
+      const std::function<void(const ValueVariant&)>& write_fn,
       bool writable, bool enumerable, bool configurable) {
       PropertyDescriptor desc;
       desc.getter = read_fn;
@@ -114,22 +102,23 @@ namespace jobject {
       desc.configurable = configurable;
       obj.defineProperty(prop_name, desc);
     }
+
+    // 值属性定义函数（直接设置值，不使用getter/setter）
+    template<typename Obj>
+    void def_prop_val(Obj& obj, const std::string& prop_name,
+      const ValueVariant& val, bool writable, bool enumerable, bool configurable) {
+      PropertyDescriptor desc;
+      desc.value = val;
+      desc.getter = nullptr;
+      desc.setter = nullptr;
+      desc.writable = writable;
+      desc.enumerable = enumerable;
+      desc.configurable = configurable;
+      obj.defineProperty(prop_name, desc);
+    }
   }
 
-  // 值属性定义宏（直接设置值，不使用getter/setter）
-#define DEF_PROP_VAL(obj, prop_name, val, _writable, _enumerable, _configurable) \
-    do { \
-        PropertyDescriptor _desc; \
-        _desc.value = (val); \
-        _desc.getter = nullptr; \
-        _desc.setter = nullptr; \
-        _desc.writable = (_writable); \
-        _desc.enumerable = (_enumerable); \
-        _desc.configurable = (_configurable); \
-        (obj).defineProperty((prop_name), _desc); \
-    } while(0)
-
-// 基础对象类
+  // 基础对象类
   class JObject {
   public:
     JObject();
