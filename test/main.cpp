@@ -172,7 +172,7 @@ void testMacroUsage() {
     auto obj = utils::createObject();
     
     // 使用DEF_PROP宏定义读写属性
-    DEF_PROP(*obj, "name", 
+    def_prop_rw(*obj, "name", 
         []() -> ValueVariant {
             return std::make_shared<JString>("test object");
         },
@@ -181,13 +181,13 @@ void testMacroUsage() {
         });
     
     // 使用DEF_PROP_RO宏定义只读属性
-    DEF_PROP_RO(*obj, "version",
+    def_prop_ro(*obj, "version",
         []() -> ValueVariant {
             return std::make_shared<JString>("1.0.0");
         });
     
     // 使用DEF_PROP_VAL宏定义值属性
-    DEF_PROP_VAL(*obj, "id", static_cast<uint32_t>(12345), false, true, true);
+    def_prop_val(*obj, "id", static_cast<uint32_t>(12345), false, true, true);
     
     // 测试属性访问
     std::cout << "名称: " << utils::valueToString(obj->getProperty("name")) << std::endl;
