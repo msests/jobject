@@ -485,6 +485,7 @@ std::string valueToString(const ValueVariant &value);
 bool isNumber(const ValueVariant &value);
 double toNumber(const ValueVariant &value);
 bool toBoolean(const ValueVariant &value);
+jvalue evalValue(jvalue value, const std::string &expr);
 
 // 创建不同类型的值
 std::shared_ptr<JObject> createObject();
