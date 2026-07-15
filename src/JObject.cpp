@@ -10,66 +10,38 @@ namespace jobject {
 
 namespace {
 
-std::vector<std::string> parseExpressionTokens(const std::string &expression) {
-  std::vector<std::string> tokens;
-  std::string currentToken;
-  bool inBrackets = false;
-  bool inQuotes = false;
-
-  for (size_t i = 0; i < expression.length(); ++i) {
-    const char ch = expression[i];
-
-    if (ch == '"' && !inBrackets) {
-      inQuotes = !inQuotes;
-      continue;
-    }
-
-    if (inQuotes) {
-      currentToken += ch;
-      continue;
-    }
-
-    if (ch == '[' && !inBrackets) {
-      if (!currentToken.empty()) {
-        tokens.push_back(currentToken);
-        currentToken.clear();
-      }
-      inBrackets = true;
-      continue;
-    }
-
-    if (ch == ']' && inBrackets) {
-      if (!currentToken.empty()) {
-        tokens.push_back(currentToken);
-        currentToken.clear();
-      }
-      inBrackets = false;
-      continue;
-    }
-
-    if (ch == '.' && !inBrackets) {
-      if (!currentToken.empty()) {
-        tokens.push_back(currentToken);
-        currentToken.clear();
-      }
-      continue;
-    }
-
-    if (std::isspace(static_cast<unsigned char>(ch))) {
-      continue;
-    }
-
-    currentToken += ch;
+/**
+ * @brief Try to interpret a property name as a canonical array index.
+ *
+ * Accepts only pure decimal strings without leading zeros (except "0"),
+ * matching JavaScript's canonical numeric index semantics.
+ *
+ * @param[in] name The property name to inspect.
+ * @param[out] outIndex Receives the parsed index when the name is an index.
+ * @return true if the name is a canonical array index, false otherwise.
+ */
+bool tryParseArrayIndex(const std::string &name, size_t &outIndex) {
+  if (name.empty()) {
+    return false;
   }
-
-  if (!currentToken.empty()) {
-    tokens.push_back(currentToken);
+  if (name.size() > 1 && name[0] == '0') {
+    return false;
   }
-
-  return tokens;
+  for (const char ch : name) {
+    if (!std::isdigit(static_cast<unsigned char>(ch))) {
+      return false;
+    }
+  }
+  try {
+    outIndex = static_cast<size_t>(std::stoull(name));
+  } catch (const std::exception &) {
+    return false;
+  }
+  return true;
 }
 
 } // namespace
+
 
 // =======================
 // JObject 实现
@@ -301,47 +273,56 @@ void JArray::initializeArrayProperties() {
       },
       true, false, false);
 
-  updateLength();
-
-  // 其他方法将在getPropertyInternal中按需创建，避免递归
+  // 数字索引与其它方法均在 getPropertyInternal 中按需解析，避免递归与
+  // 每次修改数组时重建索引属性描述符带来的 O(n) 开销。
 }
 
-void JArray::updateLength() {
-  // 更新数字索引属性
-  for (size_t i = 0; i < value_.size(); ++i) {
-    jobject::utils::def_prop_ex(
-        *this, std::to_string(i), ([this, i]() -> ValueVariant {
-          return i < value_.size() ? value_[i] : ValueVariant(nullptr);
-        }),
-        ([this, i](const ValueVariant &val) {
-          if (i < value_.size()) {
-            value_[i] = val;
-          }
-        }),
-        true, true, true);
+bool JArray::hasProperty(const std::string &name) const {
+  size_t index = 0;
+  if (tryParseArrayIndex(name, index)) {
+    return index < value_.size();
   }
+  return JObject::hasProperty(name);
+}
+
+std::vector<std::string> JArray::getPropertyNames() const {
+  std::vector<std::string> names;
+  names.reserve(value_.size());
+  for (size_t i = 0; i < value_.size(); ++i) {
+    names.push_back(std::to_string(i));
+  }
+  // 追加非索引的可枚举命名属性。
+  for (const auto &name : JObject::getPropertyNames()) {
+    size_t index = 0;
+    if (!tryParseArrayIndex(name, index)) {
+      names.push_back(name);
+    }
+  }
+  return names;
+}
+
+bool JArray::setProperty(const std::string &name, const ValueVariant &value) {
+  size_t index = 0;
+  if (tryParseArrayIndex(name, index) && index < value_.size()) {
+    value_[index] = value;
+    return true;
+  }
+  return JObject::setProperty(name, value);
 }
 
 size_t JArray::Size() const { return value_.size(); }
 
 bool JArray::Empty() const { return value_.empty(); }
 
-void JArray::Clear() {
-  value_.clear();
-  updateLength();
-}
+void JArray::Clear() { value_.clear(); }
 
-void JArray::Push(const ValueVariant &value) {
-  value_.push_back(value);
-  updateLength();
-}
+void JArray::Push(const ValueVariant &value) { value_.push_back(value); }
 
 ValueVariant JArray::Pop() {
   if (value_.empty())
     return JUndefined{};
   ValueVariant result = value_.back();
   value_.pop_back();
-  updateLength();
   return result;
 }
 
@@ -364,7 +345,6 @@ void JArray::setElement(size_t index, const ValueVariant &value) {
     value_.resize(index + 1);
   }
   value_[index] = value;
-  updateLength();
 }
 
 std::string JArray::toString() const {
@@ -378,6 +358,12 @@ std::string JArray::toString() const {
 }
 
 ValueVariant JArray::getPropertyInternal(const std::string &name) const {
+  // 数字索引按需解析，避免维护索引属性描述符
+  size_t index = 0;
+  if (tryParseArrayIndex(name, index)) {
+    return index < value_.size() ? value_[index] : ValueVariant{JUndefined{}};
+  }
+
   // 处理JArray特有的方法
   if (name == "push") {
     auto pushFunc = std::make_shared<JFunction>(
@@ -388,7 +374,6 @@ ValueVariant JArray::getPropertyInternal(const std::string &name) const {
           for (const auto &arg : args) {
             mutableThis->value_.push_back(arg);
           }
-          mutableThis->updateLength();
           return static_cast<uint32_t>(mutableThis->value_.size());
         });
     return pushFunc;
@@ -400,7 +385,6 @@ ValueVariant JArray::getPropertyInternal(const std::string &name) const {
             return JUndefined{};
           ValueVariant result = mutableThis->value_.back();
           mutableThis->value_.pop_back();
-          mutableThis->updateLength();
           return result;
         });
     return popFunc;
@@ -412,7 +396,6 @@ ValueVariant JArray::getPropertyInternal(const std::string &name) const {
             return JUndefined{};
           ValueVariant result = mutableThis->value_.front();
           mutableThis->value_.erase(mutableThis->value_.begin());
-          mutableThis->updateLength();
           return result;
         });
     return shiftFunc;
@@ -423,7 +406,6 @@ ValueVariant JArray::getPropertyInternal(const std::string &name) const {
           auto *mutableThis = const_cast<JArray *>(this);
           mutableThis->value_.insert(mutableThis->value_.begin(), args.begin(),
                                      args.end());
-          mutableThis->updateLength();
           return static_cast<uint32_t>(mutableThis->value_.size());
         });
     return unshiftFunc;
@@ -471,7 +453,6 @@ ValueVariant JArray::getPropertyInternal(const std::string &name) const {
                                        args.begin() + 2, args.end());
           }
 
-          mutableThis->updateLength();
           return deletedArray;
         });
     return spliceFunc;
@@ -627,400 +608,5 @@ ValueVariant JDate::getPropertyInternal(const std::string &name) const {
   // 调用父类方法处理通用属性
   return JObject::getPropertyInternal(name);
 }
-
-// =======================
-// jvalue 实现
-// =======================
-
-jvalue::jvalue(const ValueVariant &value) : value_(value) {}
-
-jvalue::jvalue(const ValueVariant &value,
-               const std::shared_ptr<JObject> &object,
-               const std::string &propertyName)
-    : value_(value), accessType_(AccessType::ObjectProperty),
-      objectTarget_(object), propertyName_(propertyName) {}
-
-jvalue::jvalue(const ValueVariant &value, const std::shared_ptr<JArray> &array,
-               size_t index)
-    : value_(value), accessType_(AccessType::ArrayIndex), arrayTarget_(array),
-      arrayIndex_(index) {}
-
-jvalue jvalue::operator[](const std::string &name) const {
-  auto objectLike = getObjectLike();
-  if (!objectLike) {
-    return jvalue(JUndefined{});
-  }
-  return jvalue(objectLike->getProperty(name), objectLike, name);
-}
-
-jvalue jvalue::operator[](size_t index) const {
-  auto array = getArray();
-  if (array) {
-    // 模拟JavaScript行为：先将index转为字符串，检查是否有对应属性
-    // （包括用户手动设置的命名属性及数组元素属性），有则通过属性系统返回；
-    // 否则按索引访问元素（越界时返回null）。
-    std::string key = std::to_string(index);
-    if (array->hasProperty(key)) {
-      return jvalue(array->getProperty(key),
-                    std::static_pointer_cast<JObject>(array), key);
-    }
-    return jvalue(array->At(index), array, index);
-  }
-  auto objectLike = getObjectLike();
-  if (objectLike) {
-    std::string key = std::to_string(index);
-    return jvalue(objectLike->getProperty(key), objectLike, key);
-  }
-  return jvalue(JUndefined{});
-}
-
-jvalue &jvalue::operator=(const ValueVariant &value) {
-  value_ = value;
-
-  if (accessType_ == AccessType::ObjectProperty) {
-    auto objectLike = objectTarget_.lock();
-    if (objectLike) {
-      objectLike->setProperty(propertyName_, value);
-    }
-    return *this;
-  }
-
-  if (accessType_ == AccessType::ArrayIndex) {
-    auto array = arrayTarget_.lock();
-    if (array) {
-      array->setElement(arrayIndex_, value);
-    }
-  }
-
-  return *this;
-}
-
-const ValueVariant &jvalue::getValue() const { return value_; }
-
-ValueVariant &jvalue::getValue() { return value_; }
-
-jvalue::operator ValueVariant() const { return value_; }
-
-bool jvalue::isUndefined() const {
-  return std::holds_alternative<JUndefined>(value_);
-}
-
-bool jvalue::isNull() const {
-  return std::holds_alternative<std::nullptr_t>(value_);
-}
-
-bool jvalue::isNullish() const { return isUndefined() || isNull(); }
-
-std::shared_ptr<JObject> jvalue::getObjectLike() const {
-  if (auto objectPtr = std::get_if<std::shared_ptr<JObject>>(&value_)) {
-    return *objectPtr;
-  }
-  if (auto stringPtr = std::get_if<std::shared_ptr<JString>>(&value_)) {
-    return std::static_pointer_cast<JObject>(*stringPtr);
-  }
-  if (auto arrayPtr = std::get_if<std::shared_ptr<JArray>>(&value_)) {
-    return std::static_pointer_cast<JObject>(*arrayPtr);
-  }
-  if (auto functionPtr = std::get_if<std::shared_ptr<JFunction>>(&value_)) {
-    return std::static_pointer_cast<JObject>(*functionPtr);
-  }
-  if (auto datePtr = std::get_if<std::shared_ptr<JDate>>(&value_)) {
-    return std::static_pointer_cast<JObject>(*datePtr);
-  }
-  return nullptr;
-}
-
-std::shared_ptr<JArray> jvalue::getArray() const {
-  if (auto arrayPtr = std::get_if<std::shared_ptr<JArray>>(&value_)) {
-    return *arrayPtr;
-  }
-  return nullptr;
-}
-
-// =======================
-// jvalue::to<T> 特化实现
-// =======================
-
-template <> bool jvalue::to<bool>() const { return utils::toBoolean(value_); }
-
-template <> int32_t jvalue::to<int32_t>() const {
-  return static_cast<int32_t>(utils::toNumber(value_));
-}
-
-template <> uint32_t jvalue::to<uint32_t>() const {
-  return static_cast<uint32_t>(utils::toNumber(value_));
-}
-
-template <> int64_t jvalue::to<int64_t>() const {
-  return static_cast<int64_t>(utils::toNumber(value_));
-}
-
-template <> uint64_t jvalue::to<uint64_t>() const {
-  return static_cast<uint64_t>(utils::toNumber(value_));
-}
-
-template <> std::string jvalue::to<std::string>() const {
-  return utils::valueToString(value_);
-}
-
-// =======================
-// jarray 实现
-// =======================
-
-void jarray::push(const ValueVariant &value) {
-  auto array = getArray();
-  if (array) {
-    array->Push(value);
-  }
-}
-
-void jarray::push(const jvalue &val) { push(val.getValue()); }
-
-ValueVariant jarray::pop() {
-  auto array = getArray();
-  if (array) {
-    return array->Pop();
-  }
-  return JUndefined{};
-}
-
-size_t jarray::length() const {
-  auto array = getArray();
-  if (array) {
-    return array->Size();
-  }
-  return 0;
-}
-
-// =======================
-// property_iterator 实现
-// =======================
-
-jvalue::property_iterator::property_iterator() : index_(0) {}
-
-jvalue::property_iterator::property_iterator(
-    const std::shared_ptr<JObject> &obj,
-    const std::shared_ptr<const std::vector<std::string>> &names,
-    size_t index)
-    : object_(obj), names_(names), index_(index) {}
-
-jvalue::property_iterator::reference
-jvalue::property_iterator::operator*() const {
-  const auto &name = (*names_)[index_];
-  return {name, jvalue(object_->getProperty(name), object_, name)};
-}
-
-jvalue::property_iterator &jvalue::property_iterator::operator++() {
-  ++index_;
-  return *this;
-}
-
-jvalue::property_iterator jvalue::property_iterator::operator++(int) {
-  auto tmp = *this;
-  ++index_;
-  return tmp;
-}
-
-bool jvalue::property_iterator::operator==(
-    const property_iterator &other) const {
-  return index_ == other.index_;
-}
-
-bool jvalue::property_iterator::operator!=(
-    const property_iterator &other) const {
-  return index_ != other.index_;
-}
-
-// =======================
-// property_range 实现
-// =======================
-
-jvalue::property_range::property_range(property_iterator b, property_iterator e)
-    : begin_(std::move(b)), end_(std::move(e)) {}
-
-jvalue::property_iterator jvalue::property_range::begin() const {
-  return begin_;
-}
-
-jvalue::property_iterator jvalue::property_range::end() const { return end_; }
-
-// =======================
-// jvalue 迭代范围方法
-// =======================
-
-jvalue::property_range jvalue::properties() const {
-  auto obj = getObjectLike();
-  if (!obj) {
-    return property_range(property_iterator(), property_iterator());
-  }
-  // 只调用一次 getPropertyNames，begin 和 end 共享同一份数据
-  auto names = std::make_shared<const std::vector<std::string>>(obj->getPropertyNames());
-  auto sz = names->size();
-  return property_range(property_iterator(obj, names, 0),
-                        property_iterator(obj, names, sz));
-}
-
-// =======================
-// jvalue begin/end/size/empty
-// =======================
-
-jvalue::iterator jvalue::begin() const {
-  auto obj = getObjectLike();
-  if (obj) {
-    auto names = std::make_shared<const std::vector<std::string>>(obj->getPropertyNames());
-    return property_iterator(obj, names, 0);
-  }
-  return property_iterator();
-}
-
-jvalue::iterator jvalue::end() const {
-  auto obj = getObjectLike();
-  if (obj) {
-    auto names = std::make_shared<const std::vector<std::string>>(obj->getPropertyNames());
-    auto sz = names->size();
-    return property_iterator(obj, names, sz);
-  }
-  return property_iterator();
-}
-
-size_t jvalue::size() const {
-  auto obj = getObjectLike();
-  if (obj)
-    return obj->getPropertyNames().size();
-  return 0;
-}
-
-bool jvalue::empty() const { return size() == 0; }
-
-// =======================
-// jarray::element_iterator 实现
-// =======================
-
-jarray::element_iterator::element_iterator() : index_(0) {}
-
-jarray::element_iterator::element_iterator(const std::shared_ptr<JArray> &arr,
-                                           size_t index)
-    : array_(arr), index_(index) {}
-
-jarray::element_iterator::reference
-jarray::element_iterator::operator*() const {
-  // Route through public APIs to create an index-bound jvalue.
-  return jvalue(array_)[index_];
-}
-
-jarray::element_iterator &jarray::element_iterator::operator++() {
-  ++index_;
-  return *this;
-}
-
-jarray::element_iterator jarray::element_iterator::operator++(int) {
-  auto tmp = *this;
-  ++index_;
-  return tmp;
-}
-
-bool jarray::element_iterator::operator==(const element_iterator &other) const {
-  return index_ == other.index_;
-}
-
-bool jarray::element_iterator::operator!=(const element_iterator &other) const {
-  return index_ != other.index_;
-}
-
-// =======================
-// jarray::element_range 实现
-// =======================
-
-jarray::element_range::element_range(element_iterator b, element_iterator e)
-    : begin_(std::move(b)), end_(std::move(e)) {}
-
-jarray::element_iterator jarray::element_range::begin() const { return begin_; }
-
-jarray::element_iterator jarray::element_range::end() const { return end_; }
-
-// =======================
-// jarray 迭代方法
-// =======================
-
-jarray::element_range jarray::elements() const {
-  auto arr = getArray();
-  if (!arr) {
-    return element_range(element_iterator(), element_iterator());
-  }
-  return element_range(element_iterator(arr, 0),
-                       element_iterator(arr, arr->Size()));
-}
-
-jarray::iterator jarray::begin() const {
-  auto arr = getArray();
-  if (arr) {
-    return element_iterator(arr, 0);
-  }
-  return element_iterator();
-}
-
-jarray::iterator jarray::end() const {
-  auto arr = getArray();
-  if (arr) {
-    return element_iterator(arr, arr->Size());
-  }
-  return element_iterator();
-}
-
-size_t jarray::size() const {
-  auto arr = getArray();
-  if (arr)
-    return arr->Size();
-  return 0;
-}
-
-bool jarray::empty() const { return size() == 0; }
-
-namespace utils {
-
-jvalue evalValue(jvalue value, const std::string &expr) {
-  const auto tokens = parseExpressionTokens(expr);
-  jvalue current = value;
-
-  for (const auto &token : tokens) {
-    if (current.isNullish() || current.isUndefined()) {
-      return jvalue(JUndefined{});
-    }
-
-    const auto &currentValue = current.getValue();
-    const auto currentType = getValueType(currentValue);
-    if (currentType == ValueType::Array) {
-      bool isIndexToken = !token.empty();
-      for (const auto ch : token) {
-        if (!std::isdigit(static_cast<unsigned char>(ch))) {
-          isIndexToken = false;
-          break;
-        }
-      }
-
-      if (isIndexToken) {
-        try {
-          const auto index = static_cast<size_t>(std::stoull(token));
-          current = current[index];
-        } catch (const std::exception &) {
-          return jvalue(JUndefined{});
-        }
-      } else {
-        current = current[token];
-      }
-    } else if (currentType == ValueType::Object ||
-               currentType == ValueType::String ||
-               currentType == ValueType::Function ||
-               currentType == ValueType::Date) {
-      current = current[token];
-    } else {
-      return jvalue(JUndefined{});
-    }
-  }
-
-  return current;
-}
-
-} // namespace utils
 
 } // namespace jobject

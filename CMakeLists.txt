@@ -5,7 +5,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 创建静态库
-add_library(jobject STATIC src/JObject.cpp)
+add_library(jobject STATIC
+  src/JObject.cpp
+  src/Accessor.cpp
+  src/Utils.cpp)
 
 target_include_directories(jobject PUBLIC src)
 
